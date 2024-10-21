@@ -1,0 +1,1 @@
+A seminar for subject UNIX. 2D Sonic Game made in Python using Pyglet framework.
