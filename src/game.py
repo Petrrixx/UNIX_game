@@ -1,15 +1,17 @@
 import pyglet
-from .player import Player
-from .map_generator import MapGenerator
 from pyglet import resource
-from aseprite import Aseprite
+import player as player
+import map_generator as map_gen
+import sound_manager as sounds
+import utils as utils
+import aseprite.aseprite as aseprite
 
 
 class Game:
     def __init__(self):
         self.window = pyglet.window.Window(800, 600, "Sonic Game")
-        self.player = Player()
-        self.map_generator = MapGenerator(25, 20, 32)
+        self.player = player.Player()
+        self.map_generator = map_gen.MapGenerator(25, 20, 32)
         self.window.push_handlers(self)
 
     def on_draw(self):

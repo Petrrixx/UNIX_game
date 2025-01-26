@@ -18,12 +18,12 @@ SPRITES_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../asepr
 class PlayerSprite(Enum):
     IDLE_LEFT = os.path.join(SPRITES_PATH, 'sonic_idle_left.aseprite')
     IDLE_RIGHT = os.path.join(SPRITES_PATH, 'sonic_idle_right.aseprite')
-    RUN_LEFT = os.path.join(SPRITES_PATH, 'sonic_run_left_hold.aseprite')
-    RUN_RIGHT = os.path.join(SPRITES_PATH, 'sonic_run_right_hold.aseprite')
+    RUN_LEFT = os.path.join(SPRITES_PATH, 'sonic_run_left.aseprite')
+    RUN_RIGHT = os.path.join(SPRITES_PATH, 'sonic_run_right.aseprite')
     CROUCH_LEFT = os.path.join(SPRITES_PATH, 'sonic_crouch_left.aseprite')
     CROUCH_RIGHT = os.path.join(SPRITES_PATH, 'sonic_crouch_right.aseprite')
-    JUMP_LEFT = os.path.join(SPRITES_PATH, 'sonic_jump_left_hold.aseprite')
-    JUMP_RIGHT = os.path.join(SPRITES_PATH, 'sonic_jump_right_hold.aseprite')
+    JUMP_LEFT = os.path.join(SPRITES_PATH, 'sonic_jump_left.aseprite')
+    JUMP_RIGHT = os.path.join(SPRITES_PATH, 'sonic_jump_right.aseprite')
     ATTACK_LEFT = os.path.join(SPRITES_PATH, 'sonic_attack_left.aseprite')
     ATTACK_RIGHT = os.path.join(SPRITES_PATH, 'sonic_attack_right.aseprite')
     JUMP_ATTACK_LEFT = os.path.join(SPRITES_PATH, 'sonic_jump_attack_left.aseprite')
@@ -38,10 +38,11 @@ class PlayerSprite(Enum):
     LOOK_UP_RIGHT_HOLD = os.path.join(SPRITES_PATH, 'sonic_up_right_hold.aseprite')
     UP_ABILITY_LEFT = os.path.join(SPRITES_PATH, 'sonic_up_ability_left.aseprite')
     UP_ABILITY_RIGHT = os.path.join(SPRITES_PATH, 'sonic_up_ability_right.aseprite')
+    GAME_OVER = os.path.join(SPRITES_PATH, 'sonic_game_over.aseprite')
 
 
 class Player:
-    MAX_SPEED = 200  # Maximálna rýchlosť (px/s)
+    MAX_SPEED = 300  # Maximálna rýchlosť (px/s)
     ACCELERATION = 600  # Akcelerácia (px/s²)
     DECELERATION = 800  # Deakcelerácia (px/s²)
     JUMP_VELOCITY = 500  # Počiatočná rýchlosť skoku (px/s)
