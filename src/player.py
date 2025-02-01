@@ -1,341 +1,381 @@
-import pyglet
-from enum import Enum
-from pyglet.window import key
 import os
-from pyglet import shapes
+import random
+import pyglet
+from pyglet.window import key
 import aseprite.aseprite as aseprite
 
-# Debug výpisy pre import
-print("Aseprite module path:", aseprite.__file__)
-print("Aseprite module attributes:", dir(aseprite))
-
-# Načítanie Aseprite dekóderov
+# Zaregistrujeme Aseprite dekóder, aby pyglet vedel spracovať .aseprite súbory.
 pyglet.image.codecs.add_decoders(aseprite)
-batch = pyglet.graphics.Batch()
-SPRITES_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites'))
 
 
-class PlayerSprite(Enum):
-    IDLE_LEFT = os.path.join(SPRITES_PATH, 'sonic_idle_left.aseprite')
-    IDLE_RIGHT = os.path.join(SPRITES_PATH, 'sonic_idle_right.aseprite')
-    RUN_LEFT = os.path.join(SPRITES_PATH, 'sonic_run_left.aseprite')
-    RUN_RIGHT = os.path.join(SPRITES_PATH, 'sonic_run_right.aseprite')
-    CROUCH_LEFT = os.path.join(SPRITES_PATH, 'sonic_crouch_left.aseprite')
-    CROUCH_RIGHT = os.path.join(SPRITES_PATH, 'sonic_crouch_right.aseprite')
-    JUMP_LEFT = os.path.join(SPRITES_PATH, 'sonic_jump_left.aseprite')
-    JUMP_RIGHT = os.path.join(SPRITES_PATH, 'sonic_jump_right.aseprite')
-    ATTACK_LEFT = os.path.join(SPRITES_PATH, 'sonic_attack_left.aseprite')
-    ATTACK_RIGHT = os.path.join(SPRITES_PATH, 'sonic_attack_right.aseprite')
-    JUMP_ATTACK_LEFT = os.path.join(SPRITES_PATH, 'sonic_jump_attack_left.aseprite')
-    JUMP_ATTACK_RIGHT = os.path.join(SPRITES_PATH, 'sonic_jump_attack_right.aseprite')
-    SPECIAL_ATTACK_LEFT = os.path.join(SPRITES_PATH, 'sonic_spatk_left.aseprite')
-    SPECIAL_ATTACK_RIGHT = os.path.join(SPRITES_PATH, 'sonic_spatk_right.aseprite')
-    DASH_LEFT = os.path.join(SPRITES_PATH, 'sonic_dash_left.aseprite')
-    DASH_RIGHT = os.path.join(SPRITES_PATH, 'sonic_dash_right.aseprite')
-    LOOK_UP_LEFT = os.path.join(SPRITES_PATH, 'sonic_up_left_click.aseprite')
-    LOOK_UP_RIGHT = os.path.join(SPRITES_PATH, 'sonic_up_right_click.aseprite')
-    LOOK_UP_LEFT_HOLD = os.path.join(SPRITES_PATH, 'sonic_up_left_hold.aseprite')
-    LOOK_UP_RIGHT_HOLD = os.path.join(SPRITES_PATH, 'sonic_up_right_hold.aseprite')
-    UP_ABILITY_LEFT = os.path.join(SPRITES_PATH, 'sonic_up_ability_left.aseprite')
-    UP_ABILITY_RIGHT = os.path.join(SPRITES_PATH, 'sonic_up_ability_right.aseprite')
-    GAME_OVER = os.path.join(SPRITES_PATH, 'sonic_game_over.aseprite')
+# === Resource Manager ===
+class ResourceManager:
+    _cache = {}
+
+    @staticmethod
+    def get_animation(file_path):
+        if file_path in ResourceManager._cache:
+            return ResourceManager._cache[file_path]
+        if not os.path.exists(file_path):
+            print(f"File not found: {file_path}")
+            fallback_img = pyglet.image.SolidColorImagePattern(color=(255, 0, 0, 255)).create_image(64, 64)
+            fallback_anim = pyglet.image.Animation([pyglet.image.AnimationFrame(fallback_img, 1.0)])
+            ResourceManager._cache[file_path] = fallback_anim
+            return fallback_anim
+        try:
+            anim = pyglet.image.load_animation(file_path)
+            for frame in anim.frames:
+                frame.image.get_texture().mag_filter = pyglet.gl.GL_NEAREST
+            ResourceManager._cache[file_path] = anim
+            print(f"Animation loaded and cached: {file_path}")
+            return anim
+        except Exception as e:
+            print(f"Error loading animation '{file_path}': {e}")
+            fallback_img = pyglet.image.SolidColorImagePattern(color=(255, 0, 0, 255)).create_image(64, 64)
+            fallback_anim = pyglet.image.Animation([pyglet.image.AnimationFrame(fallback_img, 1.0)])
+            ResourceManager._cache[file_path] = fallback_anim
+            return fallback_anim
 
 
+# === Background Class ===
+class Background:
+    def __init__(self, file_path, batch):
+        self.file_path = file_path
+        self.batch = batch
+        self.sprite = None
+        self.loaded = False
+        display = pyglet.canvas.Display()
+        screen = display.get_default_screen()
+        self.placeholder = pyglet.shapes.Rectangle(0, 0, screen.width, screen.height,
+                                                     color=(0, 0, 0), batch=self.batch)
+        pyglet.clock.schedule_once(self.load_background, 0)
+
+    def load_background(self, dt):
+        anim = ResourceManager.get_animation(self.file_path)
+        if anim:
+            self.sprite = pyglet.sprite.Sprite(anim, x=0, y=-100, batch=self.batch)
+            self.loaded = True
+            self.placeholder.delete()
+            print("Background successfully loaded.")
+        else:
+            print("Failed to load background animation.")
+
+    def update(self, dt):
+        pass
+
+    def draw(self):
+        if self.sprite:
+            self.sprite.draw()
+        else:
+            self.placeholder.draw()
+
+
+# === Ground Class ===
+class Ground:
+    def __init__(self, file_path, batch, y_position):
+        # Načítame podlahový obrázok a umiestnime ho na danú y-pozíciu.
+        self.sprite = pyglet.sprite.Sprite(pyglet.image.load(file_path), x=0, y=y_position, batch=batch)
+    def draw(self):
+        self.sprite.draw()
+
+
+# === Player Sprite Enumeration ===
+class PlayerSprite:
+    SPRITES_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites'))
+    IDLE_LEFT    = os.path.join(SPRITES_PATH, 'sonic_idle_left.aseprite')
+    IDLE_RIGHT   = os.path.join(SPRITES_PATH, 'sonic_idle_right.aseprite')
+    RUN_LEFT     = os.path.join(SPRITES_PATH, 'sonic_run_left.aseprite')
+    RUN_RIGHT    = os.path.join(SPRITES_PATH, 'sonic_run_right.aseprite')
+    JUMP_LEFT    = os.path.join(SPRITES_PATH, 'sonic_jump_left.aseprite')
+    JUMP_RIGHT   = os.path.join(SPRITES_PATH, 'sonic_jump_right.aseprite')
+
+
+# === Player Class ===
 class Player:
-    MAX_SPEED = 300  # Maximálna rýchlosť (px/s)
-    ACCELERATION = 600  # Akcelerácia (px/s²)
-    DECELERATION = 800  # Deakcelerácia (px/s²)
-    JUMP_VELOCITY = 500  # Počiatočná rýchlosť skoku (px/s)
-    GRAVITY = -1500  # Gravitácia (px/s²)
+    MAX_SPEED = 800
+    ACCELERATION = 800
+    DECELERATION = 1000
+    JUMP_VELOCITY = 800
+    GRAVITY = -1500
     HITBOX_WIDTH = 148
     HITBOX_HEIGHT = 180
 
-    def __init__(self):
-        self.x = 100
+    def __init__(self, batch, window):
+        self.batch = batch
+        self.window = window
+        self.animations = {}
+        for attr in dir(PlayerSprite):
+            if not attr.startswith("__") and attr.isupper():
+                value = getattr(PlayerSprite, attr)
+                if isinstance(value, str) and value.lower().endswith(".aseprite"):
+                    anim = ResourceManager.get_animation(value)
+                    if anim:
+                        self.animations[attr] = anim
+                    else:
+                        print(f"Animation '{attr}' failed to load.")
+        self.x = 500
         self.y = 300
         self.velocity_x = 0
         self.velocity_y = 0
-        self.current_action = PlayerSprite.IDLE_RIGHT
-        self.animation = self.load_animation(self.current_action)
-        self.sprite = pyglet.sprite.Sprite(self.animation, x=self.x, y=self.y, batch=batch)
-        if self.animation:
-            for frame in self.animation.frames:
-                frame.image.get_texture().mag_filter = pyglet.gl.GL_NEAREST
-        self.hitbox = shapes.Rectangle(self.x, self.y, self.HITBOX_WIDTH, self.HITBOX_HEIGHT, color=(50, 50, 255))
-        self.is_jumping = False
         self.direction = 'right'
+        self.is_jumping = False
+        self.jump_timer = 0
+        self.current_action = 'IDLE_RIGHT'
+        self.animation = self.animations.get(self.current_action)
+        if self.animation is None:
+            fallback_img = pyglet.image.SolidColorImagePattern(color=(0,255,0,255)).create_image(64,64)
+            self.animation = pyglet.image.Animation([pyglet.image.AnimationFrame(fallback_img, 1.0)])
+        self.sprite = pyglet.sprite.Sprite(self.animation, x=self.x, y=self.y, batch=self.batch)
+        self.active_movement_keys = set()
+        # Premenná pre držanie jump tlačítka – ak je True, Sonic má nižšiu gravitáciu.
+        self.jump_held = False
 
-        self.moving_left = False
-        self.moving_right = False
-        self.moving_up = False
-        self.moving_down = False
-
-        self.active_movement_keys = []
-        self.active_action_keys = []
-        self.look_up_scheduled = False
-
-    def set_position(self, x, y):
-        self.x = x
-        self.y = y
-        self.sprite.x = self.x
-        self.sprite.y = self.y
-
-    def load_animation(self, action):
-        try:
-            animation = pyglet.image.load_animation(action.value)
-            print(f"Loaded animation {action.name} with {len(animation.frames)} frames.")
-            for i, frame in enumerate(animation.frames):
-                print(f"Frame {i}: duration={frame.duration}")
-                frame.image.get_texture().mag_filter = pyglet.gl.GL_NEAREST
-            return animation
-        except Exception as e:
-            print(f"Error loading animation {action.name}: {e}")
-            return None
-
-    def set_action(self, action):
-        if self.current_action != action:
-            print(f"Changing action from {self.current_action.name} to {action.name}")
-            self.current_action = action
-            self.animation = self.load_animation(self.current_action)
-            if self.animation:
-                self.sprite.image = self.animation
+    def set_action(self, action_key):
+        # Ak Sonic je vo vzduchu a ide o iné než jump animácie, necháme jump animáciu bežať.
+        if self.is_jumping and not action_key.startswith("JUMP_"):
+            return
+        if self.current_action != action_key:
+            self.current_action = action_key
+            anim = self.animations.get(action_key)
+            if anim:
+                self.sprite.image = anim
+                print(f"Switched action to {action_key}")
             else:
-                print(f"Failed to set animation for {action.name}")
+                print(f"Animation for {action_key} not found in cache.")
 
     def move_right(self):
-        self.moving_right = True
+        self.active_movement_keys.add('RIGHT')
         self.direction = 'right'
-        self.set_action(PlayerSprite.RUN_RIGHT)
+        if not self.is_jumping:
+            self.set_action('RUN_RIGHT')
 
     def move_left(self):
-        self.moving_left = True
+        self.active_movement_keys.add('LEFT')
         self.direction = 'left'
-        self.set_action(PlayerSprite.RUN_LEFT)
+        if not self.is_jumping:
+            self.set_action('RUN_LEFT')
 
     def jump(self):
-        if not self.is_jumping:
-            self.is_jumping = True
-            self.velocity_y = self.JUMP_VELOCITY
-            if self.direction == 'right':
-                self.set_action(PlayerSprite.JUMP_RIGHT)
-            else:
-                self.set_action(PlayerSprite.JUMP_LEFT)
-
-    def crouch(self):  # ZMENA: Metóda crouch je už definovaná, ale pripomenieme jej použitie
-        if self.direction == 'right':
-            self.set_action(PlayerSprite.CROUCH_RIGHT)
-        else:
-            self.set_action(PlayerSprite.CROUCH_LEFT)
-
-    def stop_moving_left(self):
-        self.moving_left = False
-
-    def stop_moving_right(self):
-        self.moving_right = False
-
-    def look_up(self):
-        if self.direction == 'right':
-            self.set_action(PlayerSprite.LOOK_UP_RIGHT)
-        else:
-            self.set_action(PlayerSprite.LOOK_UP_LEFT)
-
-        if not self.look_up_scheduled:
-            pyglet.clock.schedule_once(self.set_hold_animation, 0.2)
-            self.look_up_scheduled = True
-
-    def set_hold_animation(self, dt):
-        if self.direction == 'right':
-            self.set_action(PlayerSprite.LOOK_UP_RIGHT_HOLD)
-        else:
-            self.set_action(PlayerSprite.LOOK_UP_LEFT_HOLD)
-        self.look_up_scheduled = False
-
-    def stop_look_up(self):
-        if self.look_up_scheduled:
-            pyglet.clock.unschedule(self.set_hold_animation)
-            self.look_up_scheduled = False
-
-        if not self.moving_left and not self.moving_right and not self.is_jumping:
-            self.set_action(PlayerSprite.IDLE_RIGHT if self.direction == 'right' else PlayerSprite.IDLE_LEFT)
-        else:
-            self.set_action(PlayerSprite.RUN_RIGHT if self.direction == 'right' else PlayerSprite.RUN_LEFT)
-
-    # ZMENA: Pridanie metódy stop_crouch na návrat do predchádzajúcej animácie pri uvoľnení C
-    def stop_crouch(self):
-        """Prestane sa skláňať."""
-        if not self.moving_left and not self.moving_right and not self.is_jumping and 'E' not in self.active_action_keys:
-            self.set_action(PlayerSprite.IDLE_RIGHT if self.direction == 'right' else PlayerSprite.IDLE_LEFT)
-        elif 'E' in self.active_action_keys:
-            self.look_up()
-        else:
-            self.set_action(PlayerSprite.RUN_RIGHT if self.direction == 'right' else PlayerSprite.RUN_LEFT)
-
-    def update_action_based_on_movement_keys(self):
-        if not self.active_movement_keys:
-            if not self.is_jumping and 'E' not in self.active_action_keys and 'C' not in self.active_action_keys:
-                self.set_action(PlayerSprite.IDLE_RIGHT if self.direction == 'right' else PlayerSprite.IDLE_LEFT)
-            elif 'E' in self.active_action_keys:
-                self.look_up()
-            elif 'C' in self.active_action_keys:
-                self.crouch()
+        if self.is_jumping or self.y != 300:
             return
-
-        last_key = self.active_movement_keys[-1]
-        if last_key == key.D:
-            self.move_right()
-        elif last_key == key.A:
-            self.move_left()
-        elif last_key == key.W:
-            self.moving_up = True
-        elif last_key == key.S:
-            self.moving_down = True
+        self.is_jumping = True
+        self.jump_timer = 1.0  # Jump animácia hrá aspoň 1 sekundu.
+        self.velocity_y = self.JUMP_VELOCITY
+        self.jump_held = True  # Keď sa stlačí jump, predpokladáme, že tlačítko je držané.
+        if self.direction == 'right':
+            self.set_action('JUMP_RIGHT')
+        else:
+            self.set_action('JUMP_LEFT')
 
     def update(self, dt):
-        if self.moving_right:
+        if self.is_jumping:
+            self.jump_timer -= dt
+
+        # Horizontálny pohyb
+        if 'RIGHT' in self.active_movement_keys:
             self.velocity_x += self.ACCELERATION * dt
             if self.velocity_x > self.MAX_SPEED:
                 self.velocity_x = self.MAX_SPEED
-        elif self.moving_left:
+        elif 'LEFT' in self.active_movement_keys:
             self.velocity_x -= self.ACCELERATION * dt
             if self.velocity_x < -self.MAX_SPEED:
                 self.velocity_x = -self.MAX_SPEED
         else:
             if self.velocity_x > 0:
                 self.velocity_x -= self.DECELERATION * dt
-                if self.velocity_x < 0:
+                if self.velocity_x < 1:
                     self.velocity_x = 0
             elif self.velocity_x < 0:
                 self.velocity_x += self.DECELERATION * dt
-                if self.velocity_x > 0:
+                if self.velocity_x > -1:
                     self.velocity_x = 0
+            if self.velocity_x == 0 and not self.is_jumping:
+                self.set_action('IDLE_RIGHT' if self.direction == 'right' else 'IDLE_LEFT')
 
-            if self.velocity_x == 0 and not self.is_jumping and not self.active_action_keys:
-                self.set_action(PlayerSprite.IDLE_RIGHT if self.direction == 'right' else PlayerSprite.IDLE_LEFT)
-
+        # Vertikálny pohyb (skok a gravitácia)
         if self.is_jumping:
-            self.velocity_y += self.GRAVITY * dt
+            # Ak je jump tlačítko držané, použijeme nižšiu gravitáciu pre vyšší skok.
+            effective_gravity = self.GRAVITY if not self.jump_held else self.GRAVITY * 0.5
+            self.velocity_y += effective_gravity * dt
             self.y += self.velocity_y * dt
-
-            if self.y <= 300:
+            if self.y <= 300 and self.jump_timer <= 0:
                 self.y = 300
                 self.is_jumping = False
                 self.velocity_y = 0
-                if not self.moving_left and not self.moving_right and not self.active_action_keys:
-                    self.set_action(PlayerSprite.IDLE_RIGHT if self.direction == 'right' else PlayerSprite.IDLE_LEFT)
+                self.jump_held = False
+                if self.active_movement_keys:
+                    self.set_action('RUN_RIGHT' if self.direction == 'right' else 'RUN_LEFT')
                 else:
-                    self.set_action(PlayerSprite.RUN_RIGHT if self.direction == 'right' else PlayerSprite.RUN_LEFT)
-        else:
-            if self.moving_up:
-                self.y += 100 * dt
-            if self.moving_down:
-                self.y -= 100 * dt
+                    self.set_action('IDLE_RIGHT' if self.direction == 'right' else 'IDLE_LEFT')
 
         self.x += self.velocity_x * dt
-        self.x = max(0, min(self.x, window.width - self.sprite.width))
-        self.y = max(0, min(self.y, window.height - self.sprite.height))
 
+        window_width = self.window.width
+        window_height = self.window.height
+        self.x = max(0, min(self.x, window_width - self.sprite.width))
+        self.y = max(0, min(self.y, window_height - self.sprite.height))
         self.sprite.x = self.x
         self.sprite.y = self.y
-        self.hitbox.x = self.x
-        self.hitbox.y = self.y
+
+    def on_key_press(self, symbol, modifiers):
+        if self.is_jumping and symbol in (key.D, key.A):
+            if symbol == key.D:
+                self.active_movement_keys.add('RIGHT')
+                self.direction = 'right'
+            elif symbol == key.A:
+                self.active_movement_keys.add('LEFT')
+                self.direction = 'left'
+            return
+        if symbol == key.D:
+            self.move_right()
+        elif symbol == key.A:
+            self.move_left()
+        elif symbol == key.SPACE:
+            self.jump()
+
+    def on_key_release(self, symbol, modifiers):
+        if symbol == key.D:
+            self.active_movement_keys.discard('RIGHT')
+        elif symbol == key.A:
+            self.active_movement_keys.discard('LEFT')
+        elif symbol == key.SPACE:
+            self.jump_held = False
+
+
+# === Ring Class ===
+class Ring:
+    def __init__(self, file_path, batch, x, y):
+        self.sprite = pyglet.sprite.Sprite(ResourceManager.get_animation(file_path), x=x, y=y, batch=batch)
+        self.x = x
+        self.y = y
+        self.width = self.sprite.width
+        self.height = self.sprite.height
+        self.collected = False
+
+    def update(self, dt):
+        pass
 
     def draw(self):
-        self.sprite.draw()
+        if not self.collected:
+            self.sprite.draw()
 
-    def freeze_animation(self, frame_index):
-        """Zastaví animáciu na konkrétnom frame."""
-        if frame_index < len(self.animation.frames):
-            frame = self.animation.frames[frame_index]
-            self.sprite.image = frame.image
-            print(f"Frozen animation at frame {frame_index}.")
-        else:
-            print(f"Frame index {frame_index} out of range.")
-
-    def set_custom_loop(self, frame_indices):
-        """Nastaví vlastný loop frameov."""
-        from pyglet.image import Animation, AnimationFrame
-
-        selected_frames = [
-            AnimationFrame(self.animation.frames[i].image, self.animation.frames[i].duration)
-            for i in frame_indices if i < len(self.animation.frames)
-        ]
-
-        if selected_frames:
-            self.sprite.image = Animation(selected_frames)
-            print(f"Custom loop set with frames: {frame_indices}.")
-        else:
-            print("No valid frames selected for custom loop.")
+    def get_hitbox(self):
+        return (self.x, self.y, self.x + self.width, self.y + self.height)
 
 
-window = pyglet.window.Window(1920, 1080)
-player = Player()
+# === Rings Manager ===
+class RingsManager:
+    def __init__(self, file_path, batch, ground_y, count=6):
+        self.rings = []
+        self.batch = batch
+        self.collected_count = 0
+        for i in range(count):
+            x = random.randint(1000, 1800)  # Prispôsobte šírke okna.
+            y = ground_y + 80  # Ringy budú nad podlahou.
+            ring = Ring(file_path, batch, x, y)
+            self.rings.append(ring)
+
+    def update(self, dt, player):
+        for ring in self.rings:
+            if not ring.collected and self.check_collision(player, ring):
+                ring.collected = True
+                ring.sprite.delete()
+                self.collected_count += 1
+
+    def check_collision(self, player, ring):
+        px1, py1 = player.x, player.y
+        px2, py2 = player.x + player.sprite.width, player.y + player.sprite.height
+        rx1, ry1, rx2, ry2 = ring.get_hitbox()
+        return not (px2 < rx1 or px1 > rx2 or py2 < ry1 or py1 > ry2)
+
+    def draw(self):
+        for ring in self.rings:
+            ring.draw()
 
 
-@window.event
-def on_key_press(symbol, modifiers):
-    # ZMENA: Pridali sme key.C pre crouch
-    if symbol in (key.W, key.A, key.S, key.D, key.E, key.C):
-        if symbol in (key.W, key.A, key.S, key.D):
-            if symbol not in player.active_movement_keys and len(player.active_movement_keys) < 1:
-                player.active_movement_keys.append(symbol)
-                if symbol == key.D:
-                    player.move_right()
-                elif symbol == key.A:
-                    player.move_left()
-                elif symbol == key.W:
-                    player.moving_up = True
-                elif symbol == key.S:
-                    player.moving_down = True
+# === Ring Counter (UI) ===
+class RingCounter:
+    def __init__(self, icon_path, x=30, y=30):
+        self.icon = pyglet.sprite.Sprite(pyglet.image.load(icon_path), x=x, y=y)
+        self.count = 0
+        self.label = pyglet.text.Label(str(self.count),
+                                       font_name='Arial',
+                                       font_size=20,
+                                       x=x + self.icon.width + 20,
+                                       y=y + self.icon.height // 2,
+                                       anchor_y='center',
+                                       color=(255, 255, 255, 255))
 
-        elif symbol == key.E:
-            if symbol not in player.active_action_keys:
-                player.active_action_keys.append('E')
-                player.look_up()
+    def update(self, new_count):
+        self.count = new_count
+        self.label.text = str(self.count)
 
-        # ZMENA: Akčný kláves C pre crouch
-        elif symbol == key.C:
-            if 'C' not in player.active_action_keys:
-                player.active_action_keys.append('C')
-                player.crouch()
+    def draw(self):
+        self.icon.draw()
+        self.label.draw()
 
 
-@window.event
-def on_key_release(symbol, modifiers):
-    if symbol in (key.W, key.A, key.S, key.D, key.E, key.C):
-        if symbol in (key.W, key.A, key.S, key.D):
-            if symbol in player.active_movement_keys:
-                player.active_movement_keys.remove(symbol)
-                if symbol == key.D:
-                    player.stop_moving_right()
-                elif symbol == key.A:
-                    player.stop_moving_left()
-                elif symbol == key.W:
-                    player.moving_up = False
-                elif symbol == key.S:
-                    player.moving_down = False
-                player.update_action_based_on_movement_keys()
+# === Game Class ===
+class Game:
+    def __init__(self):
+        self.window = pyglet.window.Window(fullscreen=True, caption="Sonic Game")
+        self.background_batch = pyglet.graphics.Batch()
+        self.ground_batch = pyglet.graphics.Batch()
+        self.foreground_batch = pyglet.graphics.Batch()
+        self.ui_batch = pyglet.graphics.Batch()
 
-        elif symbol == key.E:
-            if 'E' in player.active_action_keys:
-                player.active_action_keys.remove('E')
-                player.stop_look_up()
+        self.background_path = os.path.join(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites')),
+            'sunsethill_animated.gif'
+        )
+        self.background = Background(self.background_path, self.background_batch)
 
-        # ZMENA: Uvoľnenie klávesy C
-        elif symbol == key.C:
-            if 'C' in player.active_action_keys:
-                player.active_action_keys.remove('C')
-                player.stop_crouch()
+        ground_path = os.path.join(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites')),
+            'ground.png'
+        )
+        self.ground = Ground(ground_path, self.ground_batch, y_position=90)
+
+        self.player = Player(self.foreground_batch, self.window)
+
+        ring_path = os.path.join(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites')),
+            'ring.gif'
+        )
+        self.rings_manager = RingsManager(ring_path, self.foreground_batch, ground_y=280, count=6)
+
+        ring_icon_path = os.path.join(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites')),
+            'ringPhoto.png'
+        )
+        self.ring_counter = RingCounter(ring_icon_path, x=30, y=self.window.height - 100)
+
+        self.window.push_handlers(self)
+        pyglet.clock.schedule_interval(self.update, 1 / 60.0)
+
+    def on_draw(self):
+        self.window.clear()
+        self.background_batch.draw()   # Pozadie
+        self.ground_batch.draw()         # Podlaha
+        self.foreground_batch.draw()     # Sonic a ringy
+        self.ring_counter.draw()         # UI – čítač prstienkov
+
+    def on_key_press(self, symbol, modifiers):
+        self.player.on_key_press(symbol, modifiers)
+
+    def on_key_release(self, symbol, modifiers):
+        self.player.on_key_release(symbol, modifiers)
+
+    def update(self, dt):
+        self.player.update(dt)
+        self.background.update(dt)
+        self.rings_manager.update(dt, self.player)
+        self.ring_counter.update(self.rings_manager.collected_count)
+
+    def run(self):
+        pyglet.app.run()
 
 
-@window.event
-def on_draw():
-    window.clear()
-    batch.draw()
-
-
-def update(dt):
-    player.update(dt)
-
-
-pyglet.clock.schedule_interval(update, 1 / 60.0)
-pyglet.app.run()
+if __name__ == '__main__':
+    game = Game()
+    game.run()
