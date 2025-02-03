@@ -3,6 +3,7 @@ import random
 import pyglet
 from pyglet.window import key
 import aseprite.aseprite as aseprite
+from pyglet import math  # Na prácu s maticami
 
 # Zaregistrujeme Aseprite dekóder, aby pyglet vedel spracovať .aseprite súbory.
 pyglet.image.codecs.add_decoders(aseprite)
@@ -53,6 +54,7 @@ class Background:
     def load_background(self, dt):
         anim = ResourceManager.get_animation(self.file_path)
         if anim:
+            # Pozadie je posunuté o -100 v y – upravte podľa potreby.
             self.sprite = pyglet.sprite.Sprite(anim, x=0, y=-100, batch=self.batch)
             self.loaded = True
             self.placeholder.delete()
@@ -73,7 +75,7 @@ class Background:
 # === Ground Class ===
 class Ground:
     def __init__(self, file_path, batch, y_position):
-        # Načítame podlahový obrázok a umiestnime ho na danú y-pozíciu.
+        # Načítame obrázok podlahy a umiestnime ho na danú y-pozíciu.
         self.sprite = pyglet.sprite.Sprite(pyglet.image.load(file_path), x=0, y=y_position, batch=batch)
     def draw(self):
         self.sprite.draw()
@@ -113,6 +115,7 @@ class Player:
                         self.animations[attr] = anim
                     else:
                         print(f"Animation '{attr}' failed to load.")
+        # Nastavenie počiatočnej pozície Sonica (world coordinates)
         self.x = 500
         self.y = 300
         self.velocity_x = 0
@@ -127,11 +130,11 @@ class Player:
             self.animation = pyglet.image.Animation([pyglet.image.AnimationFrame(fallback_img, 1.0)])
         self.sprite = pyglet.sprite.Sprite(self.animation, x=self.x, y=self.y, batch=self.batch)
         self.active_movement_keys = set()
-        # Premenná pre držanie jump tlačítka – ak je True, Sonic má nižšiu gravitáciu.
+        # Flag pre držanie jump tlačítka – ak je True, Sonic má nižšiu gravitáciu.
         self.jump_held = False
 
     def set_action(self, action_key):
-        # Ak Sonic je vo vzduchu a ide o iné než jump animácie, necháme jump animáciu bežať.
+        # Ak Sonic je vo vzduchu a ide o iné než jump animácie, ponecháme jump animáciu.
         if self.is_jumping and not action_key.startswith("JUMP_"):
             return
         if self.current_action != action_key:
@@ -161,7 +164,7 @@ class Player:
         self.is_jumping = True
         self.jump_timer = 1.0  # Jump animácia hrá aspoň 1 sekundu.
         self.velocity_y = self.JUMP_VELOCITY
-        self.jump_held = True  # Keď sa stlačí jump, predpokladáme, že tlačítko je držané.
+        self.jump_held = True
         if self.direction == 'right':
             self.set_action('JUMP_RIGHT')
         else:
@@ -194,7 +197,6 @@ class Player:
 
         # Vertikálny pohyb (skok a gravitácia)
         if self.is_jumping:
-            # Ak je jump tlačítko držané, použijeme nižšiu gravitáciu pre vyšší skok.
             effective_gravity = self.GRAVITY if not self.jump_held else self.GRAVITY * 0.5
             self.velocity_y += effective_gravity * dt
             self.y += self.velocity_y * dt
@@ -212,7 +214,8 @@ class Player:
 
         window_width = self.window.width
         window_height = self.window.height
-        self.x = max(0, min(self.x, window_width - self.sprite.width))
+        # Obmedzenie, aby Sonic zostal v rámci definovaného sveta (x medzi 1000 a 3400)
+        self.x = max(1000, min(self.x, 3400 - self.sprite.width))
         self.y = max(0, min(self.y, window_height - self.sprite.height))
         self.sprite.x = self.x
         self.sprite.y = self.y
@@ -269,17 +272,33 @@ class RingsManager:
         self.rings = []
         self.batch = batch
         self.collected_count = 0
-        for i in range(count):
-            x = random.randint(1000, 1800)  # Prispôsobte šírke okna.
-            y = ground_y + 80  # Ringy budú nad podlahou.
-            ring = Ring(file_path, batch, x, y)
+        # Vytvorí 3 ringy vedľa seba na y = ground_y + 50
+        row1_y = ground_y + 50
+        row1_start = 1600  # pevná hodnota pre tento riadok
+        spacing = 10  # medzera medzi ringami
+        for i in range(3):
+            x = row1_start + i * (self._ring_width(file_path, batch) + spacing)
+            ring = Ring(file_path, batch, x, row1_y)
             self.rings.append(ring)
+        # Vytvorí 3 ringy vedľa seba na y = ground_y + 140
+        row2_y = ground_y + 140
+        row2_start = 1600
+        for i in range(3):
+            x = row2_start + i * (self._ring_width(file_path, batch) + spacing)
+            ring = Ring(file_path, batch, x, row2_y)
+            self.rings.append(ring)
+
+    def _ring_width(self, file_path, batch):
+        temp_sprite = pyglet.sprite.Sprite(ResourceManager.get_animation(file_path), x=0, y=0, batch=batch)
+        width = temp_sprite.width
+        temp_sprite.delete()
+        return width
 
     def update(self, dt, player):
         for ring in self.rings:
             if not ring.collected and self.check_collision(player, ring):
                 ring.collected = True
-                ring.sprite.delete()
+                ring.sprite.delete()  # Odstránenie sprite, aby ring zmizol
                 self.collected_count += 1
 
     def check_collision(self, player, ring):
@@ -315,7 +334,83 @@ class RingCounter:
         self.label.draw()
 
 
-# === Game Class ===
+# === Menu Classes ===
+class Menu:
+    def __init__(self, window):
+        self.window = window
+        # Načítame menu pozadie – titleGif.gif
+        menu_bg_path = os.path.join(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites')),
+            'titleGif.gif'
+        )
+        self.bg = pyglet.sprite.Sprite(ResourceManager.get_animation(menu_bg_path), x=0, y=0)
+        # Načítame herný nadpis – gameTitle.png; nastavíme kotvy manuálne
+        game_title_image = pyglet.image.load(os.path.join(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites')),
+            'gameTitle.png'
+        ))
+        game_title_image.anchor_x = game_title_image.width // 2
+        game_title_image.anchor_y = game_title_image.height // 2
+        self.title = pyglet.sprite.Sprite(game_title_image, x=self.window.width // 2, y=int(self.window.height * 0.75))
+        # Načítame start animáciu – start.gif; umiestnime ju na pevné x a y
+        start_anim = ResourceManager.get_animation(os.path.join(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites')),
+            'start.gif'
+        ))
+        self.start = pyglet.sprite.Sprite(start_anim, x=self.window.width // 2 - 200, y=int(self.window.height * 0.4))
+        for frame in self.start.image.frames:
+            frame.image.anchor_x = frame.image.width // 2
+            frame.image.anchor_y = frame.image.height // 2
+        # Načítame press animáciu – press.gif
+        press_anim = ResourceManager.get_animation(os.path.join(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites')),
+            'press.gif'
+        ))
+        self.press = pyglet.sprite.Sprite(press_anim, x=self.window.width // 2 - 180, y=int(self.window.height * 0.25))
+        for frame in self.press.image.frames:
+            frame.image.anchor_x = frame.image.width // 2
+            frame.image.anchor_y = frame.image.height // 2
+
+    def draw(self):
+        self.bg.draw()
+        self.title.draw()
+        self.start.draw()
+        self.press.draw()
+
+
+class LoadingScreen:
+    def __init__(self, window):
+        self.window = window
+        loading_anim = ResourceManager.get_animation(os.path.join(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites')),
+            'loading.gif'
+        ))
+        self.sprite = pyglet.sprite.Sprite(loading_anim,
+                                           x=self.window.width * 0.45,
+                                           y=self.window.height * 0.15 - 1000)
+        for frame in self.sprite.image.frames:
+            frame.image.anchor_x = frame.image.width // 2
+            frame.image.anchor_y = frame.image.height // 2
+
+    def draw(self):
+        self.sprite.draw()
+
+
+# === GameText (statický obrázok na mape) ===
+class GameText:
+    def __init__(self, file_path, batch, x, y):
+        # Načítame obrázok gameText1.png a nastavíme ho s kotvami na stred.
+        image = pyglet.image.load(file_path)
+        image.anchor_x = image.width // 2
+        image.anchor_y = image.height // 2
+        self.sprite = pyglet.sprite.Sprite(image, x=650, y=650, batch=batch)
+    def draw(self):
+        self.sprite.draw()
+
+
+# === Game Class (s kamera follow a menu) ===
+from pyglet.gl import *
+
 class Game:
     def __init__(self):
         self.window = pyglet.window.Window(fullscreen=True, caption="Sonic Game")
@@ -324,6 +419,17 @@ class Game:
         self.foreground_batch = pyglet.graphics.Batch()
         self.ui_batch = pyglet.graphics.Batch()
 
+        # Stav hry: "menu", "loading", "game"
+        self.state = "menu"
+
+        # Kamera offset – sledujeme Sonicove world coordinates (iba horizontálne).
+        self.camera_x = 0
+
+        # Menu
+        self.menu = Menu(self.window)
+        self.loading = LoadingScreen(self.window)
+
+        # Hra:
         self.background_path = os.path.join(
             os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites')),
             'sunsethill_animated.gif'
@@ -334,7 +440,7 @@ class Game:
             os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites')),
             'ground.png'
         )
-        self.ground = Ground(ground_path, self.ground_batch, y_position=90)
+        self.ground = Ground(ground_path, self.ground_batch, y_position=-120)
 
         self.player = Player(self.foreground_batch, self.window)
 
@@ -350,27 +456,56 @@ class Game:
         )
         self.ring_counter = RingCounter(ring_icon_path, x=30, y=self.window.height - 100)
 
+        # Pridáme statický obrázok gameText1.png, ktorý bude zobrazený na mape.
+        game_text_path = os.path.join(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites')),
+            'gameText1.png'
+        )
+        # Nastavíme počiatočnú pozíciu gameText (môžeš upraviť x, y podľa potrieb)
+        self.game_text = GameText(game_text_path, self.foreground_batch, x=2000, y=400)
+
         self.window.push_handlers(self)
         pyglet.clock.schedule_interval(self.update, 1 / 60.0)
 
     def on_draw(self):
         self.window.clear()
-        self.background_batch.draw()   # Pozadie
-        self.ground_batch.draw()         # Podlaha
-        self.foreground_batch.draw()     # Sonic a ringy
-        self.ring_counter.draw()         # UI – čítač prstienkov
+        if self.state == "menu":
+            self.menu.draw()
+        elif self.state == "loading":
+            self.loading.draw()
+        elif self.state == "game":
+            # Použijeme view maticu na horizontálne sledovanie kamery.
+            self.window.view = math.Mat4().translate((-self.camera_x, 0, 0))
+            self.background_batch.draw()   # Pozadie
+            self.ground_batch.draw()         # Podlaha
+            self.foreground_batch.draw()     # Sonic, ringy a gameText
+            # Obnovíme view maticu na identitu pre UI.
+            self.window.view = math.Mat4()
+            self.ring_counter.draw()         # UI – čítač prstienkov
 
     def on_key_press(self, symbol, modifiers):
-        self.player.on_key_press(symbol, modifiers)
+        if self.state == "menu":
+            if symbol == key.SPACE:
+                self.state = "loading"
+                pyglet.clock.schedule_once(self.start_game, 2.0)
+        elif self.state == "game":
+            self.player.on_key_press(symbol, modifiers)
 
     def on_key_release(self, symbol, modifiers):
-        self.player.on_key_release(symbol, modifiers)
+        if self.state == "game":
+            self.player.on_key_release(symbol, modifiers)
+
+    def start_game(self, dt):
+        self.state = "game"
 
     def update(self, dt):
-        self.player.update(dt)
-        self.background.update(dt)
-        self.rings_manager.update(dt, self.player)
-        self.ring_counter.update(self.rings_manager.collected_count)
+        if self.state == "game":
+            self.player.update(dt)
+            self.background.update(dt)
+            self.rings_manager.update(dt, self.player)
+            self.ring_counter.update(self.rings_manager.collected_count)
+            # Aktualizácia kamery – snažíme sa, aby bol Sonic v strede obrazovky horizontálne.
+            self.camera_x = self.player.x - self.window.width / 2
 
     def run(self):
         pyglet.app.run()
