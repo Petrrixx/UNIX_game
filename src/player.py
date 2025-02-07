@@ -485,8 +485,8 @@ class Eggman(Boss):
                 self.direction = 'right'
         else:
             self.x += self.movement_speed * dt
-            if self.x > 3400:
-                self.x = 3400
+            if self.x > 3200:
+                self.x = 3200
                 self.direction = 'left'
         self.movement_speed = 150 + (10 - self.health) * 10
         if self.direction == 'left':
@@ -531,9 +531,12 @@ class Eggdrill(Boss):
         self.sprite = pyglet.sprite.Sprite(self.anim_right, x=self.x, y=self.y, batch=self.batch)
         self.sprite.anchor_x = 0
         self.sprite.anchor_y = 0
+
     def update(self, dt):
         if not self.active:
             return
+        # Pridáme update cooldown, aby sa hit_cooldown znižoval
+        self.update_cooldown(dt)
         if self.direction == 'left':
             self.x -= self.movement_speed * dt
             if self.x < 1000:
@@ -541,8 +544,8 @@ class Eggdrill(Boss):
                 self.direction = 'right'
         else:
             self.x += self.movement_speed * dt
-            if self.x > 3400:
-                self.x = 3400
+            if self.x > 3200:
+                self.x = 3200
                 self.direction = 'left'
         self.movement_speed = 200 + (10 - self.health) * 15
         if self.direction == 'left':
@@ -551,12 +554,14 @@ class Eggdrill(Boss):
             self.sprite.image = self.anim_right
         self.sprite.x = self.x
         self.sprite.y = self.y
+
     def get_hitbox(self):
         # Rozšírime hitbox o 10 pixelov dopredu
         if self.direction == 'right':
             return (self.x + self.sprite.width - 30, self.y, self.x + self.sprite.width, self.y + self.sprite.height)
         else:
             return (self.x, self.y, self.x + 30, self.y + self.sprite.height)
+
     def draw(self):
         if self.active and self.sprite is not None:
             self.sprite.draw()
@@ -587,8 +592,8 @@ class MetalSonic(Boss):
         if self.state == "flying":
             if self.direction == 'right':
                 self.x += speed * dt
-                if self.x >= 3400:
-                    self.x = 3400
+                if self.x >= 3200:
+                    self.x = 3200
                     self.direction = 'left'
                     self.state = "waiting"
                     self.wait_timer = 4.0
@@ -654,13 +659,25 @@ class BossManager:
             self.boss = boss_class(self.batch)
             self.boss_spawned = True
             print("Boss spawned:", type(self.boss).__name__)
+
     def update(self, dt, player, player_rings):
-        # Ak boss je aktívny, skontrolujeme kolízie a aplikujeme damage
+        # Ak je boss spawnutý a aktívny, aktualizujeme jeho stav
         if self.boss_spawned and self.boss and self.boss.active:
             self.boss.update(dt)
-            # Pre Eggman: Sonic nedokáže bossovi dať damage priamym dotykom
+
+            # Všeobecná kolízia: ak Sonic koliduje s bossom a nie je skákajúci,
+            # Sonic dostáva damage
+            if self.check_collision(player, self.boss) and player.hit_cooldown <= 0:
+                if not player.is_jumping:
+                    player.hit_cooldown = 3.0
+                    player_rings = max(player_rings - 1, 0)
+                    dmg_x = (player.x + player.sprite.width / 2) if player.sprite else player.x
+                    dmg_y = (player.y + player.sprite.height + 20) if player.sprite else player.y
+                    self.game.damage_texts.append(DamageText("-1 HP", dmg_x, dmg_y, 1.0))
+
+            # Špecifické spracovanie podľa typu bossa:
             if isinstance(self.boss, Eggman):
-                # Boss dajú damage hráčovi len cez projektily
+                # Eggman nedáva damage hráčovi priamym dotykom, iba projektilmi
                 for proj in self.boss.projectiles:
                     if self.check_collision(player, proj) and player.hit_cooldown <= 0:
                         player.hit_cooldown = 3.0
@@ -669,33 +686,59 @@ class BossManager:
                             proj.sprite.delete()
                             proj.sprite = None
                         player_rings = max(player_rings - 1, 0)
-                        self.game.damage_texts.append(DamageText("-1 HP", player.x + player.sprite.width/2, player.y + player.sprite.height + 20))
-            # Pre Eggdrill:
+                        dmg_x = (player.x + player.sprite.width / 2) if player.sprite else player.x
+                        dmg_y = (player.y + player.sprite.height + 20) if player.sprite else player.y
+                        self.game.damage_texts.append(DamageText("-1 HP", dmg_x, dmg_y, 1.0))
+                        # Dodatočný blok: ak Sonic je skákajúci a dotkne sa Eggmana, boss dostane damage.
+                if player.is_jumping and self.check_collision(player,
+                                                              self.boss) and self.boss.hit_cooldown <= 0:
+                    self.boss.take_damage(1)
+                    player.hit_cooldown = 3.0
+                    dmg_x = (self.boss.x + self.boss.sprite.width / 2) if self.boss.sprite else self.boss.x
+                    dmg_y = (self.boss.y + self.boss.sprite.height) if self.boss.sprite else self.boss.y
+                    self.game.damage_texts.append(DamageText("-1 HP", dmg_x, dmg_y, 1.0))
             elif isinstance(self.boss, Eggdrill):
                 ex1, ey1, ex2, ey2 = self.boss.get_hitbox()
                 if (player.x + player.sprite.width > ex1 and player.x < ex2 and
-                    player.y + player.sprite.height > ey1 and player.y < ey2):
-                    if player.hit_cooldown <= 0:
+                        player.y + player.sprite.height > ey1 and player.y < ey2):
+                    if player.hit_cooldown <= 0 and not player.is_jumping:
                         player.hit_cooldown = 3.0
                         player_rings = max(player_rings - 1, 0)
-                        self.game.damage_texts.append(DamageText("-1 HP", player.x + player.sprite.width/2, player.y + player.sprite.height + 20))
-                # Ak Sonic je skákajúci, dokáže bossovi dať damage
-                if player.is_jumping and self.check_collision(player, self.boss):
+                        dmg_x = (player.x + player.sprite.width / 2) if player.sprite else player.x
+                        dmg_y = (player.y + player.sprite.height + 20) if player.sprite else player.y
+                        self.game.damage_texts.append(DamageText("-1 HP", dmg_x, dmg_y, 1.0))
+                # Ak Sonic je skákajúci a dotkne sa Eggdrilla a boss nie je v cooldown, boss dostane damage
+                if player.is_jumping and self.check_collision(player, self.boss) and self.boss.hit_cooldown <= 0:
                     self.boss.take_damage(1)
-                    self.game.damage_texts.append(DamageText("-1 HP", self.boss.x + self.boss.sprite.width/2, self.boss.y + self.boss.sprite.height, 1.0))
-            # Pre MetalSonic:
+                    player.hit_cooldown = 3.0
+                    dmg_x = (self.boss.x + self.boss.sprite.width / 2) if self.boss.sprite else self.boss.x
+                    dmg_y = (self.boss.y + self.boss.sprite.height) if self.boss.sprite else self.boss.y
+                    self.game.damage_texts.append(DamageText("-1 HP", dmg_x, dmg_y, 1.0))
             elif isinstance(self.boss, MetalSonic):
-                # MetalSonic dáva damage len v stave "flying"
                 if self.boss.state == "flying":
                     if self.check_collision(player, self.boss) and player.hit_cooldown <= 0:
-                        player.hit_cooldown = 3.0
-                        player_rings = max(player_rings - 1, 0)
-                        self.game.damage_texts.append(DamageText("-1 HP", player.x + player.sprite.width/2, player.y + player.sprite.height + 20))
-                # Ak Sonic je skákajúci a dotkne sa MetalSonic, môže ho poškodiť
-                if player.is_jumping and self.check_collision(player, self.boss):
+                        if player.is_jumping and self.boss.hit_cooldown <= 0:
+                            self.boss.take_damage(1)
+                            player.hit_cooldown = 3.0
+                            dmg_x = (self.boss.x + self.boss.sprite.width / 2) if self.boss.sprite else self.boss.x
+                            dmg_y = (self.boss.y + self.boss.sprite.height) if self.boss.sprite else self.boss.y
+                            self.game.damage_texts.append(DamageText("-1 HP", dmg_x, dmg_y, 1.0))
+                        elif not player.is_jumping:
+                            player.hit_cooldown = 3.0
+                            player_rings = max(player_rings - 1, 0)
+                            dmg_x = (player.x + player.sprite.width / 2) if player.sprite else player.x
+                            dmg_y = (player.y + player.sprite.height + 20) if player.sprite else player.y
+                            self.game.damage_texts.append(DamageText("-1 HP", dmg_x, dmg_y, 1.0))
+                # Aj mimo stavu "flying": ak Sonic je skákajúci a dotkne sa bossa a boss nie je v cooldown, boss dostane damage.
+                if player.is_jumping and self.check_collision(player, self.boss) and self.boss.hit_cooldown <= 0:
                     self.boss.take_damage(1)
-                    self.game.damage_texts.append(DamageText("-1 HP", self.boss.x + self.boss.sprite.width/2, self.boss.y + self.boss.sprite.height, 1.0))
+                    player.hit_cooldown = 3.0
+                    dmg_x = (self.boss.x + self.boss.sprite.width / 2) if self.boss.sprite else self.boss.x
+                    dmg_y = (self.boss.y + self.boss.sprite.height) if self.boss.sprite else self.boss.y
+                    self.game.damage_texts.append(DamageText("-1 HP", dmg_x, dmg_y, 1.0))
+            # V tejto vetve vždy vrátime hodnotu player_rings
             return player_rings
+
         elif self.boss_spawned and self.boss and not self.boss.active:
             if not self.explosions:
                 self.spawn_explosions(self.boss.x, self.boss.y)
@@ -704,6 +747,8 @@ class BossManager:
             if all(exp.timer <= 0 for exp in self.explosions) and not self.win_displayed:
                 self.win_displayed = True
                 self.display_end_message("gameText2.png")  # YOU WIN
+            return player_rings
+
         return player_rings
 
     def check_collision(self, entity1, entity2):
