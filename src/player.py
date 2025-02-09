@@ -2,14 +2,15 @@ import os
 import random
 import pyglet
 from pyglet.window import key
-import aseprite.aseprite as aseprite
+import aseprite.aseprite as aseprite # toto nie je moja trieda, ale ukradnutá z internetu -> dovoluje mi dekódovať a spracovať .aseprite súbory priamo do Animation, AnimationFrame a ImageData -> SUPER VEC
 from pyglet import math  # Pre prácu s maticami
-from pyglet.gl import *  # Pre prípadné použitie OpenGL
+from pyglet.gl import *  # Pre prípadné použitie OpenGL -> kamera follow a vykreslovanie relatívne od polôh (matice)
+from pyglet import media
 
 # Zaregistrujeme Aseprite dekóder:
 pyglet.image.codecs.add_decoders(aseprite)
 
-# === Resource Manager ===
+# === Resource Manager === - Našiel som na geekforgeek a stackoverflow, že je dobré použiť kvôli výkonu. Načíta si všetky súbory do cache, aby ich vedel rýchlejšie potom vytahovať, lebo sú už skompilované!!!
 class ResourceManager:
     _cache = {}
     @staticmethod
@@ -60,7 +61,7 @@ class DamageText:
         if self.timer > 0:
             self.label.draw()
 
-# === Background Class ===
+# === Background Class === - pozadie
 class Background:
     def __init__(self, file_path, batch):
         self.file_path = file_path
@@ -89,14 +90,14 @@ class Background:
         else:
             self.placeholder.draw()
 
-# === Ground Class ===
+# === Ground Class === - podlaha
 class Ground:
     def __init__(self, file_path, batch, y_position):
         self.sprite = pyglet.sprite.Sprite(pyglet.image.load(file_path), x=0, y=y_position, batch=batch)
     def draw(self):
         self.sprite.draw()
 
-# === Player Sprite Enumeration ===
+# === Player Sprite Enumeration === - animácie , cesta k nim. toto je taký Enum v podstate
 class PlayerSprite:
     SPRITES_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites'))
     IDLE_LEFT    = os.path.join(SPRITES_PATH, 'sonic_idle_left.aseprite')
@@ -106,7 +107,7 @@ class PlayerSprite:
     JUMP_LEFT    = os.path.join(SPRITES_PATH, 'sonic_jump_left.aseprite')
     JUMP_RIGHT   = os.path.join(SPRITES_PATH, 'sonic_jump_right.aseprite')
 
-# === Player Class ===
+# === Player Class === - Hráč
 class Player:
     MAX_SPEED = 800
     ACCELERATION = 800
@@ -356,13 +357,13 @@ class Menu:
         self.start.draw()
         self.press.draw()
 
-# === LoadingScreen Class ===
+# === LoadingScreen Class === - hodnoty * 0.45 pre x a * 0.15 - 1000, vychádza pekne do rohu, tweakoval som strašne dlho polohu :(
 class LoadingScreen:
     def __init__(self, window):
         self.window = window
         loading_path = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites')), 'loading.gif')
         loading_anim = ResourceManager.get_animation(loading_path)
-        self.sprite = pyglet.sprite.Sprite(loading_anim, x=self.window.width * 0.4, y=self.window.height * 0.15 - 1000)
+        self.sprite = pyglet.sprite.Sprite(loading_anim, x=self.window.width * 0.45, y=self.window.height * 0.15 - 1000)
         for frame in self.sprite.image.frames:
             frame.image.anchor_x = frame.image.width // 2
             frame.image.anchor_y = frame.image.height // 2
@@ -389,7 +390,7 @@ class Boss:
         self.health = health
         self.movement_speed = movement_speed
         self.damage = damage
-        self.batch = batch  # Teraz odovzdávame batch (napr. self.foreground_batch)
+        self.batch = batch  # Tu odovzdávame batch (pozor na hitbox - overit musím podľa konzolového výpisu niekedy inokedy, nechce sa mi teraz)
         self.sprite = None
         self.direction = 'left'
         self.active = True
@@ -416,7 +417,7 @@ class Boss:
             if self.hit_cooldown < 0:
                 self.hit_cooldown = 0
 
-# Projectile Class
+# Projectile Class - lietajúce strely, ktoré dokážu hráča zranit
 class Projectile:
     def __init__(self, file_path, batch, x, y, velocity_x, velocity_y):
         self.batch = batch
@@ -443,7 +444,7 @@ class Projectile:
     def get_hitbox(self):
         return (self.x, self.y, self.x + self.sprite.width, self.y + self.sprite.height)
 
-# Explosion Class
+# Explosion Class - výbuchy keď boss je porazený
 class Explosion:
     def __init__(self, file_path, batch, x, y, duration=1.0):
         self.batch = batch
@@ -566,7 +567,7 @@ class Eggdrill(Boss):
         if self.active and self.sprite is not None:
             self.sprite.draw()
 
-# MetalSonic (Boss) Class – damage hráča dáva len keď je v stave "flying"
+# MetalSonic (Boss) Class
 class MetalSonic(Boss):
     def __init__(self, batch):
         super().__init__(x=1000, y=700, health=10, movement_speed=400, damage=1, batch=batch)
@@ -689,7 +690,7 @@ class BossManager:
                         dmg_x = (player.x + player.sprite.width / 2) if player.sprite else player.x
                         dmg_y = (player.y + player.sprite.height + 20) if player.sprite else player.y
                         self.game.damage_texts.append(DamageText("-1 HP", dmg_x, dmg_y, 1.0))
-                        # Dodatočný blok: ak Sonic je skákajúci a dotkne sa Eggmana, boss dostane damage.
+                        # ak Sonic je skákajúci a dotkne sa Eggmana, boss dostane damage.
                 if player.is_jumping and self.check_collision(player,
                                                               self.boss) and self.boss.hit_cooldown <= 0:
                     self.boss.take_damage(1)
@@ -707,7 +708,7 @@ class BossManager:
                         dmg_x = (player.x + player.sprite.width / 2) if player.sprite else player.x
                         dmg_y = (player.y + player.sprite.height + 20) if player.sprite else player.y
                         self.game.damage_texts.append(DamageText("-1 HP", dmg_x, dmg_y, 1.0))
-                # Ak Sonic je skákajúci a dotkne sa Eggdrilla a boss nie je v cooldown, boss dostane damage
+                # Ak Sonic je skákajúci a dotkne sa Eggdrilla a boss nie je v imunite, boss dostane damage
                 if player.is_jumping and self.check_collision(player, self.boss) and self.boss.hit_cooldown <= 0:
                     self.boss.take_damage(1)
                     player.hit_cooldown = 3.0
@@ -729,7 +730,7 @@ class BossManager:
                             dmg_x = (player.x + player.sprite.width / 2) if player.sprite else player.x
                             dmg_y = (player.y + player.sprite.height + 20) if player.sprite else player.y
                             self.game.damage_texts.append(DamageText("-1 HP", dmg_x, dmg_y, 1.0))
-                # Aj mimo stavu "flying": ak Sonic je skákajúci a dotkne sa bossa a boss nie je v cooldown, boss dostane damage.
+                # Aj mimo stavu "flying": ak Sonic je skákajúci a dotkne sa bossa a boss nie je v cooldowne (nemá imunitu), tak dostane damage.
                 if player.is_jumping and self.check_collision(player, self.boss) and self.boss.hit_cooldown <= 0:
                     self.boss.take_damage(1)
                     player.hit_cooldown = 3.0
@@ -780,7 +781,7 @@ class BossManager:
         pyglet.app.exit()
 
     def draw(self):
-        # Bossy sú teraz v globálnom batchu, takže tu kreslíme iba explózie
+        # Bossovia sú teraz v globálnom batchy, takže tu kreslíme iba explózie
         for exp in self.explosions:
             exp.draw()
 
@@ -809,6 +810,9 @@ class Game:
         self.menu = Menu(self.window)
         self.loading = LoadingScreen(self.window)
 
+        # MEDIA PREHRAVAC, nasiel som z kniznice pyglet na internete
+        self.music_player = None
+
         self.background_path = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites')),
                                             'sunsethill_animated.gif')
         self.background = Background(self.background_path, self.background_batch)
@@ -829,7 +833,7 @@ class Game:
 
         game_text_path = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '../aseprite/sprites')),
                                       'gameText1.png')
-        self.game_text = GameText(game_text_path, self.foreground_batch, x=2000, y=400)
+        self.game_text = GameText(game_text_path, self.foreground_batch, x=800, y=700)
 
         self.boss_manager = BossManager(self.foreground_batch, self.window, self.ui_batch, self)
 
@@ -840,6 +844,15 @@ class Game:
 
         self.window.push_handlers(self)
         pyglet.clock.schedule_interval(self.update, 1 / 60.0)
+
+    # Metóda pre hudbu
+    def play_music(self):
+        music_path = os.path.join(PlayerSprite.SPRITES_PATH, "doomsday.mp3")
+        music = pyglet.media.load(music_path, streaming=True)
+        self.music_player = pyglet.media.Player()
+        self.music_player.queue(music)
+        self.music_player.loop = True
+        self.music_player.play()
 
     def on_draw(self):
         self.window.clear()
@@ -876,6 +889,8 @@ class Game:
 
     def start_game(self, dt):
         self.state = "game"
+        # Hudba začne až tu, keď sa spustí hra
+        self.play_music()
 
     def update(self, dt):
         if self.state == "game":
